@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: acs-demo
+  labels:
+    app: acs-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: acs-demo
+  template:
+    metadata:
+      labels:
+        app: acs-demo
+    spec:
+      containers:
+        - name: acs-demo
+          image: image-registry.openshift-image-registry.svc:5000/acs-demo/acs-demo
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: acs-demo
+  labels:
+    app: acs-demo
+spec:
+  selector:
+    app: acs-demo
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: acs-demo
+  labels:
+    app: acs-demo
+spec:
+  to:
+    kind: Service
+    name: acs-demo
+  port:
+    targetPort: http
