@@ -4,15 +4,10 @@ parameters:
 - name: acsMode
   displayName: ACS test mode
   type: string
-  default: fail
+  default: pass
   values:
     - fail
     - pass
-
-- name: runImageCheck
-  displayName: Run ACS image check
-  type: boolean
-  default: false
 
 variables:
   agentPool: gm-agents
@@ -21,15 +16,54 @@ variables:
   routeName: acs-demo
   manifestRoot: k8s
   rhacsVersion: 4.7.9
+  imageRef: image-registry.openshift-image-registry.svc:5000/webapp1/acs-demo:latest
   HOME: $(Agent.TempDirectory)
   KUBECONFIG: $(Agent.TempDirectory)/.kube/config
 
 stages:
 - stage: ACSGate
-  displayName: ACS policy gate
+  displayName: ACS policy gates
   jobs:
+  - job: CheckImage
+    displayName: Check image with ACS
+    pool:
+      name: $(agentPool)
+    steps:
+    - checkout: none
+
+    - script: |
+        set -euo pipefail
+
+        if [ -z "$(imageRef)" ]; then
+          echo "imageRef is empty"
+          exit 1
+        fi
+
+        echo "Downloading roxctl from RHACS mirror"
+        curl -fL --retry 3 --retry-delay 3 \
+          "https://mirror.openshift.com/pub/rhacs/assets/$(rhacsVersion)/bin/Linux/roxctl" \
+          -o roxctl
+
+        chmod +x roxctl
+        ./roxctl version
+
+        export ROX_ENDPOINT="$(ROX_ENDPOINT)"
+        export ROX_API_TOKEN="$(ROX_API_TOKEN)"
+        export ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY="$(ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY)"
+
+        echo "Running ACS image check on $(imageRef)"
+        ./roxctl image check \
+          --image "$(imageRef)" \
+          -o table
+      displayName: ACS image check
+      env:
+        ROX_ENDPOINT: $(ROX_ENDPOINT)
+        ROX_API_TOKEN: $(ROX_API_TOKEN)
+        ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY: $(ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY)
+
   - job: CheckManifest
     displayName: Check manifest with ACS
+    dependsOn: CheckImage
     pool:
       name: $(agentPool)
     steps:
@@ -54,8 +88,6 @@ stages:
           -o roxctl
 
         chmod +x roxctl
-
-        echo "Verifying roxctl binary"
         ./roxctl version
 
         export ROX_ENDPOINT="$(ROX_ENDPOINT)"
@@ -72,46 +104,6 @@ stages:
         ROX_ENDPOINT: $(ROX_ENDPOINT)
         ROX_API_TOKEN: $(ROX_API_TOKEN)
         ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY: $(ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY)
-
-  - ${{ if eq(parameters.runImageCheck, true) }}:
-    - job: CheckImage
-      displayName: Check image with ACS
-      dependsOn: CheckManifest
-      pool:
-        name: $(agentPool)
-      steps:
-      - checkout: none
-
-      - script: |
-          set -euo pipefail
-
-          if [ -z "$(IMAGE_REF)" ]; then
-            echo "IMAGE_REF is empty"
-            exit 1
-          fi
-
-          echo "Downloading roxctl from RHACS mirror"
-          curl -fL --retry 3 --retry-delay 3 \
-            "https://mirror.openshift.com/pub/rhacs/assets/$(rhacsVersion)/bin/Linux/roxctl" \
-            -o roxctl
-
-          chmod +x roxctl
-          ./roxctl version
-
-          export ROX_ENDPOINT="$(ROX_ENDPOINT)"
-          export ROX_API_TOKEN="$(ROX_API_TOKEN)"
-          export ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY="$(ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY)"
-
-          echo "Running ACS image check on $(IMAGE_REF)"
-          ./roxctl image check \
-            --image "$(IMAGE_REF)" \
-            -o table
-        displayName: ACS image check
-        env:
-          ROX_ENDPOINT: $(ROX_ENDPOINT)
-          ROX_API_TOKEN: $(ROX_API_TOKEN)
-          ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY: $(ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY)
-          IMAGE_REF: $(IMAGE_REF)
 
 - stage: Deploy
   displayName: Deploy to OpenShift
@@ -146,7 +138,6 @@ stages:
         set -euo pipefail
         mkdir -p "$HOME/.kube"
 
-        echo "Waiting for rollout"
         oc rollout status deployment/$(deploymentName) -n "$(namespace)" --timeout=180s
 
         echo
