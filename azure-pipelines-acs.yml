@@ -20,7 +20,7 @@ variables:
   deploymentName: acs-demo
   routeName: acs-demo
   manifestRoot: k8s
-  rhacsVersion: 4.8.5
+  rhacsVersion: 4.7.9
   HOME: $(Agent.TempDirectory)
   KUBECONFIG: $(Agent.TempDirectory)/.kube/config
 
