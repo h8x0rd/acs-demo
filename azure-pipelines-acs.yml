@@ -56,7 +56,6 @@ stages:
         chmod +x roxctl
 
         echo "Verifying roxctl binary"
-      #  file ./roxctl
         ./roxctl version
 
         echo "Running ACS deployment check"
