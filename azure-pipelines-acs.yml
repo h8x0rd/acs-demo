@@ -58,11 +58,14 @@ stages:
         echo "Verifying roxctl binary"
         ./roxctl version
 
+        export ROX_ENDPOINT="$(ROX_ENDPOINT)"
+        export ROX_API_TOKEN="$(ROX_API_TOKEN)"
+        export ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY="$(ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY)"
+
         echo "Running ACS deployment check"
         ./roxctl deployment check \
-          --endpoint "$(ROX_ENDPOINT)" \
-          --token "$(ROX_API_TOKEN)" \
           --file "${MANIFEST_FILE}" \
+          --namespace "$(namespace)" \
           -o table
       displayName: ACS deployment check
       env:
@@ -93,15 +96,14 @@ stages:
             -o roxctl
 
           chmod +x roxctl
-
-          echo "Verifying roxctl binary"
-          file ./roxctl
           ./roxctl version
+
+          export ROX_ENDPOINT="$(ROX_ENDPOINT)"
+          export ROX_API_TOKEN="$(ROX_API_TOKEN)"
+          export ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY="$(ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY)"
 
           echo "Running ACS image check on $(IMAGE_REF)"
           ./roxctl image check \
-            --endpoint "$(ROX_ENDPOINT)" \
-            --token "$(ROX_API_TOKEN)" \
             --image "$(IMAGE_REF)" \
             -o table
         displayName: ACS image check
