@@ -15,7 +15,7 @@ parameters:
   default: false
 
 variables:
-  agentPool: openshift-local
+  agentPool: gm-agents
   namespace: webapp1
   deploymentName: acs-demo
   routeName: acs-demo
