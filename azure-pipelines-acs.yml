@@ -33,33 +33,37 @@ stages:
       name: $(agentPool)
     steps:
     - checkout: self
-
     - script: |
-        set -euo pipefail
-        mkdir -p "$HOME/.kube"
+    set -euo pipefail
+    mkdir -p "$HOME/.kube"
 
-        if [ "${{ parameters.acsMode }}" = "fail" ]; then
-          MANIFEST_FILE="$(manifestRoot)/bad/nginx.yaml"
-        else
-          MANIFEST_FILE="$(manifestRoot)/good/nginx.yaml"
-        fi
+    if [ "${{ parameters.acsMode }}" = "fail" ]; then
+      MANIFEST_FILE="$(manifestRoot)/bad/nginx.yaml"
+    else
+      MANIFEST_FILE="$(manifestRoot)/good/nginx.yaml"
+    fi
 
-        echo "Using manifest: ${MANIFEST_FILE}"
-        echo "Downloading roxctl from ACS Central"
-        curl -ksS "https://$(ROX_ENDPOINT)/api/cli/download/roxctl-linux" -o roxctl
-        chmod +x roxctl
+    echo "Using manifest: ${MANIFEST_FILE}"
 
-        echo "Running ACS deployment check"
-        ./roxctl deployment check \
-          --endpoint "$(ROX_ENDPOINT)" \
-          --token "$(ROX_API_TOKEN)" \
-          --file "${MANIFEST_FILE}" \
-          -o table
-      displayName: ACS deployment check
-      env:
-        ROX_ENDPOINT: $(ROX_ENDPOINT)
-        ROX_API_TOKEN: $(ROX_API_TOKEN)
-        ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY: $(ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY)
+    RHACS_VERSION="4.10.0"
+    curl -fL --retry 3 \
+      "https://mirror.openshift.com/pub/rhacs/assets/${RHACS_VERSION}/bin/Linux/roxctl" \
+      -o roxctl
+
+    chmod +x roxctl
+    file ./roxctl
+    ./roxctl version
+
+    ./roxctl deployment check \
+      --endpoint "$(ROX_ENDPOINT)" \
+      --token "$(ROX_API_TOKEN)" \
+      --file "${MANIFEST_FILE}" \
+      -o table
+  displayName: ACS deployment check
+  env:
+    ROX_ENDPOINT: $(ROX_ENDPOINT)
+    ROX_API_TOKEN: $(ROX_API_TOKEN)
+    ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY: $(ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY)
 
   - job: CheckImage
     displayName: Check image with ACS
