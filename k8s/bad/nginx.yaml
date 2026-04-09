@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: acs-demo
-          image: image-registry.openshift-image-registry.svc:5000/acs-demo/acs-demo
+          image: image-registry.openshift-image-registry.svc:5000/webapp1/acs-demo
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
