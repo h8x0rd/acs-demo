@@ -1,0 +1,163 @@
+trigger: none
+
+parameters:
+- name: acsMode
+  displayName: ACS test mode
+  type: string
+  default: fail
+  values:
+    - fail
+    - pass
+
+- name: runImageCheck
+  displayName: Run ACS image check
+  type: boolean
+  default: false
+
+variables:
+  agentPool: gm-agents
+  namespace: webapp1
+  deploymentName: acs-demo
+  routeName: acs-demo
+  manifestRoot: k8s
+  rhacsVersion: 4.7.9
+  HOME: $(Agent.TempDirectory)
+  KUBECONFIG: $(Agent.TempDirectory)/.kube/config
+
+stages:
+- stage: ACSGate
+  displayName: ACS policy gate
+  jobs:
+  - job: CheckManifest
+    displayName: Check manifest with ACS
+    pool:
+      name: $(agentPool)
+    steps:
+    - checkout: self
+
+    - script: |
+        set -euo pipefail
+        mkdir -p "$HOME/.kube"
+
+        if [ "${{ parameters.acsMode }}" = "fail" ]; then
+          MANIFEST_FILE="$(manifestRoot)/bad/nginx.yaml"
+        else
+          MANIFEST_FILE="$(manifestRoot)/good/nginx.yaml"
+        fi
+
+        echo "Using manifest: ${MANIFEST_FILE}"
+        test -f "${MANIFEST_FILE}"
+
+        echo "Downloading roxctl from RHACS mirror"
+        curl -fL --retry 3 --retry-delay 3 \
+          "https://mirror.openshift.com/pub/rhacs/assets/$(rhacsVersion)/bin/Linux/roxctl" \
+          -o roxctl
+
+        chmod +x roxctl
+
+        echo "Verifying roxctl binary"
+        ./roxctl version
+
+        export ROX_ENDPOINT="$(ROX_ENDPOINT)"
+        export ROX_API_TOKEN="$(ROX_API_TOKEN)"
+        export ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY="$(ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY)"
+
+        echo "Running ACS deployment check"
+        ./roxctl deployment check \
+          --file "${MANIFEST_FILE}" \
+          --namespace "$(namespace)" \
+          -o table
+      displayName: ACS deployment check
+      env:
+        ROX_ENDPOINT: $(ROX_ENDPOINT)
+        ROX_API_TOKEN: $(ROX_API_TOKEN)
+        ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY: $(ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY)
+
+  - ${{ if eq(parameters.runImageCheck, true) }}:
+    - job: CheckImage
+      displayName: Check image with ACS
+      dependsOn: CheckManifest
+      pool:
+        name: $(agentPool)
+      steps:
+      - checkout: none
+
+      - script: |
+          set -euo pipefail
+
+          if [ -z "$(IMAGE_REF)" ]; then
+            echo "IMAGE_REF is empty"
+            exit 1
+          fi
+
+          echo "Downloading roxctl from RHACS mirror"
+          curl -fL --retry 3 --retry-delay 3 \
+            "https://mirror.openshift.com/pub/rhacs/assets/$(rhacsVersion)/bin/Linux/roxctl" \
+            -o roxctl
+
+          chmod +x roxctl
+          ./roxctl version
+
+          export ROX_ENDPOINT="$(ROX_ENDPOINT)"
+          export ROX_API_TOKEN="$(ROX_API_TOKEN)"
+          export ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY="$(ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY)"
+
+          echo "Running ACS image check on $(IMAGE_REF)"
+          ./roxctl image check \
+            --image "$(IMAGE_REF)" \
+            -o table
+        displayName: ACS image check
+        env:
+          ROX_ENDPOINT: $(ROX_ENDPOINT)
+          ROX_API_TOKEN: $(ROX_API_TOKEN)
+          ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY: $(ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY)
+          IMAGE_REF: $(IMAGE_REF)
+
+- stage: Deploy
+  displayName: Deploy to OpenShift
+  dependsOn: ACSGate
+  condition: succeeded()
+  jobs:
+  - job: DeployApp
+    displayName: Deploy sample app
+    pool:
+      name: $(agentPool)
+    steps:
+    - checkout: self
+
+    - script: |
+        set -euo pipefail
+        mkdir -p "$HOME/.kube"
+
+        if [ "${{ parameters.acsMode }}" = "fail" ]; then
+          MANIFEST_FILE="$(manifestRoot)/bad/nginx.yaml"
+        else
+          MANIFEST_FILE="$(manifestRoot)/good/nginx.yaml"
+        fi
+
+        echo "Deploying ${MANIFEST_FILE}"
+        test -f "${MANIFEST_FILE}"
+
+        oc whoami || true
+        oc apply -n "$(namespace)" -f "${MANIFEST_FILE}"
+      displayName: Deploy manifest
+
+    - script: |
+        set -euo pipefail
+        mkdir -p "$HOME/.kube"
+
+        echo "Waiting for rollout"
+        oc rollout status deployment/$(deploymentName) -n "$(namespace)" --timeout=180s
+
+        echo
+        echo "Resources:"
+        oc get all -n "$(namespace)"
+
+        echo
+        echo "Route:"
+        oc get route $(routeName) -n "$(namespace)" -o wide
+
+        echo
+        echo "Application URL:"
+        oc get route $(routeName) -n "$(namespace)" -o jsonpath='{.spec.host}{"\n"}'
+      displayName: Verify rollout
